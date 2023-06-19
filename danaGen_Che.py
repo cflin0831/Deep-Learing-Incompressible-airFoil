@@ -13,21 +13,19 @@ import numpy as np
 import utils
 import multiprocessing as mp
 
-samples     = 20       # no. of datasets to product
+samples     = 30       # no. of datasets to product
 freestream_angle = math.pi / 18.        # angle
 # freestream_angle = 10
 Mach_number_factor_low = 0.05
 Mach_number_factor_high = 0.2   # mach number factor
-cpu_to_use = 30 
+cpu_to_use = 32 
 
 airfoil_database = "./airfoil_database/"    # the database we used (we choose only one this time)
-output_dir = "./training/"                  # output name of database
+output_dir = "./training1/"                  # output name of database
 
 utils.makeDirs([output_dir])
 
 files = os.listdir("./airfoil_database/")
-# airfoilFile = './0015database/'
-# file1 = f'{files[0].split(".dat")[0]}.geo'
 files.sort()
 if len(files)==0:
     print("error - no airfoils found in %s" % airfoil_database)
@@ -37,7 +35,8 @@ seed = random.randint(0, 2**32 - 1)
 np.random.seed(seed)
 print("Seed: {}".format(seed))
 
-def newPoint():
+def newPoint():   
+    # os.system is like a string entered in the terminal
     os.system('python3 splineFinal.py')
     os.system('python3 test.py')
     os.system('rm -r data0')
@@ -50,6 +49,7 @@ def newPoint():
     for n in range(a3.shape[0]):
         output1 += "( {}  {}  0.005)\n".format(a3[n][0], a3[n][1])
     
+    # Find these internalCloud points, which may be used later in surface pressure or shear stress
     with open('system/internalCloudFoam_temp', "rt") as inFile:
         with open("system/internalCloud0", "wt") as outFile:
             for line in inFile:
@@ -59,8 +59,9 @@ def newPoint():
     return(0)
 
 def genMesh(airfoilFile):
-    # ar = np.loadtxt(airfoilFile)
     ar = np.loadtxt(airfoilFile, skiprows=1)
+
+    # There are two different shapes of airfoils, with different mesh making methods
     if ar[0][1]-ar[-1][1] != 0:
         if np.max(np.abs(ar[0]-ar[(ar.shape[0]-2)]))<1e-6:
             ar = ar[:-1]
@@ -97,15 +98,17 @@ def genMesh(airfoilFile):
                     line = line.replace("final", "{}".format(pointIndex-2))
                     outFile.write(line)
 
+    # Convert the built .geo file to .msh file
     if os.system( "gmsh airfoil.geo -3 -format msh2 airfoil.msh > /dev/null" ) != 0:   # if it error during mesh creation, /dev/null(導向垃圾桶) it==0(correct)
         print("error during mesh creation!")
         return(-1)
-
+    
+    # Convert the .msh file to the polyMesh folder to be used
     if os.system("gmshToFoam airfoil.msh > /dev/null")!=0:
         print("error during coversion to OpenFoam mesh")
         return(-1)
 
-
+    # Change patch to match empty and wall
     with open("constant/polyMesh/boundary", "rt") as iF:
         with open("constant/polyMesh/boundaryTemp", "wt") as oF:
             inArea = False
@@ -127,18 +130,23 @@ def genMesh(airfoilFile):
 
 
 def runSim(freestreamX, freestreamY, pressure=1e5):
+    # This list contains Ux, Uy and P 
     list = [f'Vx     {freestreamX: .2f};', f'Vy           {freestreamY:.2f};',  f'Pressure     {pressure};' ]
+
+    # in data 'ICnBC' contaons Ux,Uy and P
     with open("0/ICnBC", "wt") as oF:
         oF.write('//Initial and boundary conditions for flow field\n')
         for i in range(len(list)):
             oF.write(list[i]+'\n')
         oF.write('#inputMode merge\n')
-    # os.chdir('openFoam')
     status = os.system("./Allclean && simpleFoam > foam.log")
     return status
 
+# This step is mainly to discharge the folders written by all the steps
 def find(id):
     a = os.listdir(f'./{id}/') 
+
+    # Just write the folders related to the number of time steps, and don’t read the rest of the python files
     with open(f'{id}/numberdata/number', 'wt') as Of:
         for i in range(len(a)):
             if len(a[i]) > 4:
@@ -164,6 +172,7 @@ def find(id):
 
     return(0)
 
+# This step is mainly to find the shear force value  by the surface grid 
 def wallShear():
     status = os.system("python3 shear.py")
     return status
@@ -172,10 +181,12 @@ def tidy():
     status = os.system("python3 tidy.py")
     return status
 
+# Convert the shear force value to dimensionless Cf
 def Cf():
     status = os.system('python3 velocity.py')
     return status
 
+# The Cf value of the branch surface grid will be calculated and interpolated to the 101 wing surface coordinate points input in the database
 def shearInterpolation():
     status = os.system("python3 interpolation.py")
     return status
@@ -187,17 +198,10 @@ def outputProcessing(basename, freestreamX, freestreamY, cpu_id, dataDir=output_
     paths_ptfile =os.listdir(f'{cpu_id}/postProcessing/newCloud')
     paths_Ufile =os.listdir(f'{cpu_id}/postProcessing/newCloud')
 
-    # paths_pCoe=os.listdir('postProcessing/boundaryCloud')
-    # paths_ptfile =os.listdir('postProcessing/internalCloud')
-    # paths_Ufile =os.listdir('postProcessing/internalCloud')
-    # paths_input = os.listdir(f'{cpu_id}/newData')
-
     f_pCoe = paths_pCoe[0]
     f_ptfile = paths_ptfile[0]
     f_Ufile = paths_Ufile[0]
 
-
-    # print(os.getcwd())
 
     pCoe = f'{cpu_id}/postProcessing/boundaryCloud/'+ f_pCoe + '/cloud_p.xy'
     ptfile = f'{cpu_id}/postProcessing/newCloud/'+ f_ptfile + '/cloud_p.xy'
@@ -206,26 +210,15 @@ def outputProcessing(basename, freestreamX, freestreamY, cpu_id, dataDir=output_
     input_point = f'{cpu_id}/newData/newpoint'
     shear = f'{cpu_id}/all_temp/final/shearfinal'
 
-    # pCoe = 'postProcessing/boundaryCloud/'+ f_pCoe + '/cloud_p.xy'
-    # ptfile = 'postProcessing/internalCloud/'+ f_ptfile + '/cloud_p.xy'
-    # Ufile = 'postProcessing/internalCloud/' + f_Ufile + '/cloud_U.xy'
-    # LnD = 'postProcessing/forceCoeffs_airfoil/0/forceCoeffs.dat'
-    # input_point = 'newData/newpoint'
-    # shear = 'all_temp/final/shearfinal'
-
     print(os.path.isfile(ptfile))
 
     pCoe = np.loadtxt(pCoe)
-    # temp = np.loadtxt(ptfile)
     ptfile = np.loadtxt(ptfile)
     Ufile = np.loadtxt(Ufile)
     LnD = np.loadtxt(LnD)
     inPoint = np.loadtxt(input_point)
     shear_load = np.loadtxt(shear)
 
-    # print(temp)
-
-    # LnDl = len(LnD)
     pCoel = len(pCoe)
 
     mapOutput1 = np.zeros((6, res, res))
@@ -246,20 +239,12 @@ def outputProcessing(basename, freestreamX, freestreamY, cpu_id, dataDir=output_
                mapOutput1[0][x][y] = freestreamX
                mapOutput1[1][x][y] = freestreamY
                mapOutput1[2][x][y] = 0
-            #    mapOutput1[2][x][y] < 1.0
                mapOutput1[3][x][y] = ptfile[curIndex1][3]
                mapOutput1[4][x][y] = Ufile[curIndex1][3]
                mapOutput1[5][x][y] = Ufile[curIndex1][4]
                curIndex1 += 1 
             else:
                 mapOutput1[2][x][y] = 1.0
-
-    # for x2 in range(LnDl):
-    #     mapOutput2[0][x2] = freestreamX
-    #     mapOutput2[1][x2] = freestreamY
-    #     mapOutput2[2][x2] = LnD[curIndex2][2]
-    #     mapOutput2[3][x2] = LnD[curIndex2][3]
-    #     curIndex2 += 1
 
     for x2 in range(len(inPoint)):
         mapInput2[0][x2] = inPoint[curIndex2][1]
@@ -285,9 +270,6 @@ def outputProcessing(basename, freestreamX, freestreamY, cpu_id, dataDir=output_
     fileName = dataDir + '%s_%d_%d' %(basename, int(freestreamX*100), int(freestreamY*100))
     print("\tsaving in " + fileName + ".npz")
     np.savez_compressed(fileName, mapOutput1, input = mapInput2, CpACf = mapOutput2, LnD = mapOutput3)
-    # np.savez_compressed(fileName, input = mapInput2)
-    # np.savez_compressed(fileName, CpACf = mapOutput2)
-    # np.savez_compressed(fileName, LnD = mapOutput3)
 
 
     ############################
@@ -299,33 +281,34 @@ def outputProcessing(basename, freestreamX, freestreamY, cpu_id, dataDir=output_
 def full_process(airfoil, freestreamX, freestreamY,  pressure) -> int:
     id = os.getpid()
     if not os.path.exists(f'{id}'):
+        # Name the basic file originally named openFoam as the id of the selected input data
         os.system(f'cp -r openFoam {id}')    
-        # os.system(f'cp -r ./0015database/{airfoil} {id}/data0 ')
+        
+        # Write the airfoil shape data in a folder named data0
         os.system(f'cp -r ./airfoil_database/{airfoil} {id}/data0 ')
-
-    # if newPoint("../" + {id} + 'data') !=0:
-    #     print('\tnewPoint failed')
-    #     os.chdir('..')
-    #     return(-1)
 
     basename = os.path.splitext( os.path.basename(airfoil))
 
+    # Concept similar to syntax cd id
     os.chdir(f'{id}')
 
+    # look at 'def newPoint' If there is an error in this step, print, tell me, and 'cd ..' back to external environment
     if newPoint() !=0:
         print('\tnewPoint failed')
         os.chdir('..')
         return(-1)
     
+    # look at 'def genMesh' If there is an error in this step, print, tell me, and 'cd ..' back to external environment
     if genMesh("../" + airfoil_database + airfoil) !=0:
         print('\tmesh generation failed, aborting')
         os.chdir("..")
         return(-1)
     
-
+    # look at 'def runSim'
     status = runSim(freestreamX, freestreamY,  pressure)
     os.chdir("..")
 
+    # look at 'def find' if there is an error in this step, print, tell me, and 'cd ..' back to external environment
     if find(id) != 0:
         print('\tcan not find the final folder')
         os.chdir('..')
@@ -333,16 +316,19 @@ def full_process(airfoil, freestreamX, freestreamY,  pressure) -> int:
     
     os.chdir(f'{id}')
 
+    # look at 'def wallShear' if there is an error in this step, print, tell me, and 'cd ..' back to external environment
     if wallShear() != 0:
         print('\tcan not find wallShearStress')
 
+    # look at 'def tidy' if there is an error in this step, print, tell me
     if tidy() != 0:
         print('\tcan not tidy the data of internalCloud and boundaryCloud')
 
+    # look at 'def Cf' if there is an error in this step, print, tell me
     if Cf() != 0:
         print('\tcan not turn the wallShearStress to Cf')
-        # os.chdir('..')
-
+        
+    # look at 'def Cf' if there is an error in this step, print, tell me
     if shearInterpolation() != 0:
         print('\tcan not interpolation the wallshearstress')
 
@@ -352,13 +338,10 @@ def full_process(airfoil, freestreamX, freestreamY,  pressure) -> int:
     if status == 0:
         outputProcessing(basename, freestreamX, freestreamY, id, dataDir=output_dir, res=256)
         print(f'\tCase {freestreamX: .2f}, {freestreamY: .2f} done')
-    
-    # a = np.load(f'{id}/numberdata/numberdata1')
-    # if int(a) != 6000 :
-    #     os.system(f'rm -r {id}/')
 
     return id
 
+# id is simply the ID of this set of databases
 ids = []
 def log_id(id):
     if id == -1 : return
@@ -370,11 +353,14 @@ def main():
     pool = mp.Pool(samples)
     startTime = time.time()
     for n in range(samples):
-
+        # Use random in python to randomly select the shape of the wing, 'files' mean total data in floder named 'airfoil_database' 
         fileNumber = np.random.randint(0, len(files))
+
+        # Create a name called airfoil, which is defined as the file name of the selected airfoil
         airfoil = files[fileNumber]
         print("\tusing {}" .format((files[fileNumber])))
 
+        # define freestream pressure, temperature, and use the Mach number to calculate freestream velocity
         pressure = 1e5
         temperature = 300
         a = math.sqrt(1.4*287*temperature)
@@ -388,23 +374,16 @@ def main():
         print(f'\tUsing Mach number {M:.2f} angle {angle*180/math.pi:.2f}')
         print(f'\tResulting freestream vel x,y: {freestreamX:.2f}, {freestreamY:.2f}')
 
+        # look at line of 'def full_process'
         pool.apply_async(full_process, args=(airfoil, freestreamX, freestreamY, pressure,), callback=log_id)
         with open('setLog', 'a') as of:
             of.write(f'{n:d}\t|{airfoil.split(".")[0]}\t|{M:.2f}\t|{angle*180/math.pi:.2f}\n')
-
-    # temp = full_process('n0012.dat', 44.03, -2.1, 1e5)
-    # ids.append(temp)
-
 
     pool.close()
     pool.join()
     totalTime = (time.time() - startTime)/60
     print(f'Final time elapsed: {totalTime:.2f} minutes')
     print(ids)
-    # for id in ids:
-    #     os.system(f'rm -r {id}/')
-
-
 
 if __name__ == '__main__':
     main()
