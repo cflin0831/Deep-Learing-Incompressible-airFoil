@@ -1,0 +1,29 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O peration     |
+    \\  /    A nd           | Web:      www.OpenFOAM.org
+     \\/     M anipulation  |
+-------------------------------------------------------------------------------
+Description
+    Writes out values of fields at a cloud of points, interpolated to
+    specified boundary patches.
+
+\*---------------------------------------------------------------------------*/
+
+fields (p);
+#include "internalCloud0"
+
+points                  $pts;
+
+interpolationScheme     cellPoint;
+setFormat               raw;
+//writeInterval  4000;
+
+maxDistance             0.01;
+
+patches     ("aerofoil");
+
+#includeEtc "caseDicts/postProcessing/probes/boundaryCloud.cfg"
+
+// ************************************************************************* //

@@ -1,0 +1,111 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  5                                     |
+|   \\  /    A nd           | Web:      www.OpenFOAM.org                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "system";
+    object      controlDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+application     simpleFoam;
+
+startFrom       latestTime;
+
+startTime       0;
+
+stopAt          endTime;
+
+endTime         4800;
+//endTime         1;
+
+deltaT          1;
+
+writeControl    timeStep;
+
+writeInterval   400;
+
+purgeWrite      0;
+
+writeFormat     ascii;
+
+writePrecision  6;
+
+writeCompression off;
+
+timeFormat      general;
+
+timePrecision   6;
+
+runTimeModifiable true;
+
+functions
+{
+    #includeFunc boundaryCloud
+    #includeFunc newCloud
+    #includeFunc wallShearStress
+
+// forces_airfoil
+// 	{
+// 	    type forces;
+// 	    libs        ("libforces.so");
+
+//         log         yes;
+//         patches     (aerofoil);
+// 	    rho	rhoInf;
+// 	    rhoInf	1;
+// 	    CofR	(0 0 0);
+// 	}
+    forceCoeffs_airfoil
+	{
+        type        forceCoeffs;
+        libs        ("libforces.so");
+
+        log         yes;
+        patches     (aerofoil);
+        liftDir     (0 1 0);
+        dragDir     (1 0 0);
+        pitchAxis   (0 0 1);
+	    CofR	(0 0 0);
+	    rho	rhoInf;
+	    rhoInf	1;
+        magUInf     85.75;
+        lRef        1;
+        Aref        1;
+	//writeInterval  4000;
+	}
+}
+
+// yPlus1
+//     {
+//         // Mandatory entries
+//         type            yPlus;
+//         libs            ("libfieldFunctionObjects.so");
+
+//         // Optional (inherited) entries
+//         writeToFile     yes;
+//         useUserTime     yes;
+
+//         region          aerofoil;
+//         enabled         yes;
+//         log             yes;
+//         executeControl  timeStep;
+//         executeInterval 1;
+        
+//     }
+
+
+ 
+// }
+
+
+
+
+// ************************************************************************* //
